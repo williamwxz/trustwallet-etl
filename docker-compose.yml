@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: etl
+      POSTGRES_PASSWORD: etlpassword
+      POSTGRES_DB: etl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  etl:
+    build: .
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: etl
+      POSTGRES_PASSWORD: etlpassword
+      POSTGRES_DB: etl
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "2112:2112"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata: 
