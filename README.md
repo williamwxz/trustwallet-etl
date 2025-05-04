@@ -1,6 +1,6 @@
 # TrustWallet ETL Service
 
-A robust ETL (Extract, Transform, Load) service that fetches random user data, processes it, and stores it in both PostgreSQL and JSON files.
+A robust ETL (Extract, Transform, Load) service that fetches random user data, processes it, and stores it in PostgreSQL, JSON (raw data), and Parquet (processed data) formats.
 
 ## Tech Stack
 
@@ -9,6 +9,7 @@ A robust ETL (Extract, Transform, Load) service that fetches random user data, p
 - Prometheus metrics
 - Docker & Docker Compose
 - Alpine Linux
+- Apache Parquet (with Snappy compression)
 
 ## Quickstart
 
@@ -28,7 +29,7 @@ go mod tidy
 docker-compose up --build
 ```
 
-4. Test parquet
+4. Test parquet reading:
 ```bash
 go test -v ./internal -run TestReadProcessedParquet
 ```
@@ -48,9 +49,9 @@ Logs are written to `logs/etl.log` and include:
 - Prometheus metrics: http://localhost:2112/metrics
 
 ### Data Storage
-- Raw data: `data/raw/raw_data.parquet` (Parquet format with Snappy compression)
+- Raw data: `data/raw/raw_data.json`
   - Contains complete JSON response from randomuser.me API
-  - Stored as UTF8 string with timestamp
+  - Stored with timestamp
 - Processed data: `data/processed/processed_data.parquet` (Parquet format with Snappy compression)
   - Contains transformed user data with columns:
     - raw_id: Reference to raw data
@@ -60,7 +61,16 @@ Logs are written to `logs/etl.log` and include:
     - registered_date: User registration timestamp
     - processed_at: Processing timestamp
     - created_at: Record creation timestamp
-- PostgreSQL tables: `raw_data` and `processed_data`
+- PostgreSQL tables: `raw_data`
+
+### Transformation
+
+When transforming and storing processed user data, we define a custom struct (`ProcessedUser`) rather than saving all fields from the original `RandomUserResponse`. This approach is intentional for several reasons:
+
+- **Relevance:** Only the most important and frequently used fields are retained (e.g., name, email, gender, registration date, nationality, and location). This reduces storage size and focuses on the data needed for downstream analytics or reporting.
+- **Normalization:** The custom struct flattens and normalizes nested or complex fields, making the data easier to query and analyze.
+- **Privacy & Compliance:** Excluding unnecessary or sensitive fields helps with data privacy and compliance requirements.
+- **Performance:** Smaller, well-defined records improve performance for both storage and analytics engines by using Parquet format.
 
 ## Project Structure
 
@@ -72,12 +82,12 @@ Logs are written to `logs/etl.log` and include:
 ├── internal/
 │   ├── extractor.go         # Data extraction from randomuser.me
 │   ├── transformer.go       # Data transformation logic
-│   ├── storage.go          # PostgreSQL and Parquet storage
+│   ├── storage.go          # PostgreSQL, JSON, and Parquet storage
 │   ├── logger.go           # Logging utilities
-│   ├── parquet_read_test.go           # parquet file test
+│   ├── parquet_read_test.go # Parquet file reading tests
 │   └── metrics.go          # Prometheus metrics
 ├── data/
-│   ├── raw/                # Raw Parquet data
+│   ├── raw/                # Raw JSON data
 │   └── processed/          # Processed Parquet data
 ├── logs/                   # Application logs
 ├── Dockerfile             # Multi-stage build
@@ -118,13 +128,12 @@ Logs are written to `logs/etl.log` and include:
 
 2. Use managed RDS for PostgreSQL:
    - Automated backups
-   - Point-in-time recovery
    - Read replicas
 
 3. Adopt Apache Iceberg for your data lake table format:
    - Store Parquet files in S3 (or other object storage) as Iceberg tables for scalable, cost-effective storage.
    - Partition data by date or other relevant columns (e.g., `date=YYYY-MM-DD/`) for efficient querying.
-   - Use Iceberg-compatible engines (Spark, Trino, Flink, Presto, Athena) for analytics and batch/stream processing.
+   - Use Iceberg-compatible engines, such as Spark, Trino, Flink, Athena, for analytics and batch/stream processing.
    - Manage table metadata with Iceberg's built-in catalog or integrate with AWS Glue/Hive Metastore.
    - Iceberg enables ACID transactions, schema evolution, time travel, and easy rollback to previous table versions.
    - Plan for data compaction, retention, and governance policies.
